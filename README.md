@@ -19,3 +19,8 @@ A browser-based INAV blackbox analyzer that turns decoded flight logs into actio
 ## Notes
 - Suggestions are starting points, not final values.
 - Always bench-test and perform controlled test flights before full missions.
+
+## Support
+If this tool helps your workflow, you can support development here:
+
+https://buymeacoffee.com/midilo
