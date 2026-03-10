@@ -1,26 +1,14 @@
-# INAV Auto Tuner
+**Upload & Loaded Logs**  
+![Upload interface](screenshots/INAV-Tuner-Upload-Dark.png?raw=true)
 
-A browser-based INAV blackbox analyzer that turns decoded flight logs into actionable PID and navigation tuning suggestions.
+**Tune PIDs**  
+![PID suggestions](screenshots/INAV-Tuner-TunePIDs.png?raw=true)
 
-## Highlights
-- Multi-log CSV ingestion with flexible header detection
-- Gyro noise and PSD peak analysis
-- Step-response detection with configurable threshold and minimum duration
-- Navigation drift metrics (XY/Z RMS), poshold error, and wind estimate support
-- Safe/Medium/Aggressive PID profile generation with CLI output
-- Session export/import for repeat tuning workflows
+**Analysis & Warnings**  
+![Analysis warnings](screenshots/INAV-Tuner-Analysis-Warnings.png?raw=true)
 
-## Usage
-1. Open `index.html` in your browser.
-2. Load decoded INAV logs (`.csv`).
-3. Run analysis, review warnings/metrics, then generate PID variants.
-4. Copy CLI commands into INAV Configurator and test safely.
+**Navigation Charts**  
+![Nav charts](screenshots/INAV-Tuner-Navigation-Charts.png?raw=true)
 
-## Notes
-- Suggestions are starting points, not final values.
-- Always bench-test and perform controlled test flights before full missions.
-
-## Support
-If this tool helps your workflow, you can support development here:
-
-https://buymeacoffee.com/midilo
+**Attitude Charts**  
+![Attitude charts](screenshots/INAV-Tuner-Attitude-Charts.png?raw=true)
