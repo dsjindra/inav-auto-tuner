@@ -1,0 +1,1981 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>INAV Auto Tuner</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+  <style>
+    /* ── Reset & Variables ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #0d1117;
+      --surf:     #161b22;
+      --surf2:    #21262d;
+      --surf3:    #2d333b;
+      --border:   #30363d;
+      --text:     #c9d1d9;
+      --text2:    #8b949e;
+      --accent:   #58a6ff;
+      --success:  #3fb950;
+      --warn:     #d29922;
+      --danger:   #f85149;
+      --roll:     #ff6b81;
+      --pitch:    #4ecdc4;
+      --yaw:      #ffe66d;
+      --sp-roll:  rgba(255,107,129,.45);
+      --sp-pitch: rgba(78,205,196,.45);
+      --sp-yaw:   rgba(255,230,109,.45);
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+           background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
+    a { color: var(--accent); }
+
+    /* ── Layout ── */
+    #app-header { background: var(--surf); border-bottom: 1px solid var(--border); padding: 0 20px; }
+    .header-inner { max-width: 1400px; margin: 0 auto; display: flex; align-items: center;
+                    justify-content: space-between; height: 56px; gap: 16px; }
+    .logo { display: flex; align-items: center; gap: 10px; }
+    .logo svg { width: 32px; height: 32px; flex-shrink: 0; }
+    .logo h1 { font-size: 18px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+    .logo p { font-size: 11px; color: var(--text2); }
+    #status-msg { font-size: 12px; padding: 4px 10px; border-radius: 4px; display: none; }
+    #status-msg.info    { background: rgba(88,166,255,.15); color: var(--accent); }
+    #status-msg.success { background: rgba(63,185,80,.15);  color: var(--success); }
+    #status-msg.warn    { background: rgba(210,153,34,.15); color: var(--warn); }
+    #status-msg.error   { background: rgba(248,81,73,.15);  color: var(--danger); }
+    #app-main { max-width: 1400px; margin: 0 auto; padding: 20px; display: flex;
+                flex-direction: column; gap: 20px; }
+
+    /* ── Upload Section ── */
+    #upload-section { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+    #drop-zone { flex: 1; min-width: 280px; background: var(--surf);
+                 border: 2px dashed var(--border); border-radius: 10px;
+                 padding: 28px 20px; text-align: center; cursor: pointer;
+                 transition: border-color .2s, background .2s; }
+    #drop-zone.drag-over { border-color: var(--accent); background: rgba(88,166,255,.06); }
+    #drop-zone svg { width: 36px; height: 36px; color: var(--text2); margin-bottom: 8px; }
+    #drop-zone p { color: var(--text2); font-size: 13px; margin: 4px 0; }
+    #drop-zone .hint { font-size: 11px; color: var(--text2); opacity: .6; }
+    .browse-label { color: var(--accent); cursor: pointer; text-decoration: underline; }
+    #log-list { flex: 1; min-width: 280px; background: var(--surf);
+                border: 1px solid var(--border); border-radius: 10px; padding: 14px;
+                max-height: 180px; overflow-y: auto; }
+    #log-list h3 { font-size: 12px; color: var(--text2); text-transform: uppercase;
+                   letter-spacing: .5px; margin-bottom: 10px; }
+    .log-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+                border-radius: 6px; background: var(--surf2); margin-bottom: 6px; }
+    .log-item .log-name { flex: 1; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .log-item .log-meta { font-size: 11px; color: var(--text2); white-space: nowrap; }
+    .log-item .log-remove { background: none; border: none; color: var(--danger);
+                            cursor: pointer; font-size: 16px; line-height: 1; padding: 0 2px; }
+    .log-empty { color: var(--text2); font-size: 12px; text-align: center; padding: 16px; }
+
+    /* ── Main Panel ── */
+    #main-panel { background: var(--surf); border: 1px solid var(--border); border-radius: 10px;
+                  overflow: hidden; }
+    .tab-bar { display: flex; border-bottom: 1px solid var(--border); padding: 0 4px; gap: 2px;
+               background: var(--surf2); flex-wrap: wrap; }
+    .tab-btn { background: none; border: none; color: var(--text2); padding: 12px 18px;
+               cursor: pointer; font-size: 13px; position: relative; transition: color .2s;
+               border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-content { display: none; padding: 20px; }
+    .tab-content.active { display: block; }
+
+    /* ── Viz Controls ── */
+    .viz-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+                    margin-bottom: 16px; }
+    .viz-controls label { display: flex; align-items: center; gap: 6px;
+                          font-size: 12px; color: var(--text2); }
+    .viz-controls select { background: var(--surf2); color: var(--text); border: 1px solid var(--border);
+                           border-radius: 4px; padding: 4px 8px; font-size: 12px; }
+    .chart-sub-tabs { display: flex; gap: 4px; }
+    .csub-btn { background: var(--surf2); border: 1px solid var(--border); color: var(--text2);
+                border-radius: 4px; padding: 4px 12px; cursor: pointer; font-size: 12px;
+                transition: all .15s; }
+    .csub-btn:hover { color: var(--text); }
+    .csub-btn.active { background: rgba(88,166,255,.15); border-color: var(--accent); color: var(--accent); }
+
+    /* ── Chart Grids ── */
+    .chart-tab-pane { display: none; }
+    .chart-tab-pane.active { display: block; }
+    .chart-grid { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
+    .chart-grid.span1 { grid-template-columns: 1fr; }
+    @media (max-width: 900px) { .chart-grid { grid-template-columns: 1fr; } }
+    .chart-card { background: var(--surf2); border: 1px solid var(--border); border-radius: 8px;
+                  padding: 12px 14px; }
+    .chart-card h3 { font-size: 12px; font-weight: 600; color: var(--text2);
+                     text-transform: uppercase; letter-spacing: .4px; margin-bottom: 10px; }
+    .chart-card canvas { max-height: 200px; }
+    .chart-card.tall canvas { max-height: 280px; }
+
+    /* ── Action Bar ── */
+    .action-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+                  margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+    .action-bar .hint { font-size: 12px; color: var(--text2); }
+
+    /* ── Buttons ── */
+    .btn, .btn-primary, .btn-secondary, .btn-sm { border: none; border-radius: 6px;
+      cursor: pointer; font-size: 13px; font-weight: 600; transition: opacity .15s, background .15s; }
+    .btn { background: var(--surf2); border: 1px solid var(--border); color: var(--text);
+           padding: 6px 14px; }
+    .btn:hover { background: var(--surf3); }
+    .btn-primary { background: var(--accent); color: #fff; padding: 8px 18px; }
+    .btn-primary:hover { opacity: .88; }
+    .btn-primary:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-secondary { background: var(--surf2); border: 1px solid var(--border);
+                     color: var(--text); padding: 8px 18px; }
+    .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+    .btn-secondary:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-sm { background: var(--surf2); border: 1px solid var(--border); color: var(--text2);
+              padding: 4px 10px; font-size: 11px; }
+    .btn-sm:hover { color: var(--text); }
+    .btn-copy { background: var(--surf3); border: 1px solid var(--border); color: var(--text2);
+                border-radius: 4px; padding: 3px 8px; cursor: pointer; font-size: 11px;
+                transition: all .15s; }
+    .btn-copy:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── Analysis Output ── */
+    .analysis-section { margin-bottom: 24px; }
+    .analysis-section h2 { font-size: 14px; font-weight: 700; color: var(--text);
+                           margin-bottom: 12px; padding-bottom: 6px;
+                           border-bottom: 1px solid var(--border); }
+    .metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+    .metric-card { background: var(--surf2); border: 1px solid var(--border); border-radius: 8px;
+                   padding: 12px 14px; }
+    .metric-card .label { font-size: 11px; color: var(--text2); text-transform: uppercase;
+                          letter-spacing: .4px; margin-bottom: 4px; }
+    .metric-card .value { font-size: 20px; font-weight: 700; color: var(--text); }
+    .metric-card .sub { font-size: 11px; color: var(--text2); margin-top: 2px; }
+    .metric-card.good  { border-left: 3px solid var(--success); }
+    .metric-card.warn  { border-left: 3px solid var(--warn); }
+    .metric-card.bad   { border-left: 3px solid var(--danger); }
+    .axis-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .axis-table th { text-align: left; padding: 6px 10px; font-size: 11px; font-weight: 600;
+                     color: var(--text2); text-transform: uppercase; letter-spacing: .4px;
+                     border-bottom: 1px solid var(--border); }
+    .axis-table td { padding: 6px 10px; border-bottom: 1px solid rgba(48,54,61,.5); }
+    .axis-table tr:last-child td { border-bottom: none; }
+    .badge { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px;
+             font-weight: 600; }
+    .badge-good { background: rgba(63,185,80,.15); color: var(--success); }
+    .badge-warn { background: rgba(210,153,34,.15); color: var(--warn); }
+    .badge-bad  { background: rgba(248,81,73,.15);  color: var(--danger); }
+    .warnings-list { list-style: none; display: flex; flex-direction: column; gap: 6px;
+                     margin-top: 8px; }
+    .warnings-list li { padding: 8px 12px; border-radius: 6px; font-size: 13px; }
+    .warnings-list li.w-warn  { background: rgba(210,153,34,.1);  border-left: 3px solid var(--warn); }
+    .warnings-list li.w-error { background: rgba(248,81,73,.1);   border-left: 3px solid var(--danger); }
+    .warnings-list li.w-info  { background: rgba(88,166,255,.08); border-left: 3px solid var(--accent); }
+
+    /* ── PID Cards ── */
+    .pid-variants { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+    .pid-card { background: var(--surf2); border: 1px solid var(--border); border-radius: 10px;
+                overflow: hidden; }
+    .pid-card.safe       { --card-accent: var(--success); }
+    .pid-card.medium     { --card-accent: var(--accent); }
+    .pid-card.aggressive { --card-accent: var(--warn); }
+    .pid-card-header { background: rgba(0,0,0,.2); padding: 14px 16px;
+                       border-bottom: 2px solid var(--card-accent); display: flex;
+                       align-items: center; justify-content: space-between; }
+    .pid-card-header h3 { font-size: 15px; font-weight: 700; color: var(--card-accent); }
+    .pid-card-header p  { font-size: 11px; color: var(--text2); margin-top: 2px; }
+    .pid-card-body { padding: 14px 16px; }
+    .pid-section { margin-bottom: 12px; }
+    .pid-section-title { font-size: 11px; font-weight: 700; color: var(--text2);
+                         text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
+    .pid-row { display: grid; grid-template-columns: 70px repeat(4, 1fr); gap: 6px;
+               align-items: center; margin-bottom: 4px; }
+    .pid-row .axis-label { font-size: 12px; color: var(--text2); font-weight: 600; }
+    .pid-val { background: var(--surf3); border-radius: 4px; padding: 4px 6px; text-align: center;
+               font-size: 12px; font-weight: 700; color: var(--text); }
+    .pid-header-row { display: grid; grid-template-columns: 70px repeat(4, 1fr); gap: 6px;
+                      margin-bottom: 6px; }
+    .pid-header-row span { font-size: 10px; font-weight: 700; color: var(--text2);
+                           text-align: center; text-transform: uppercase; }
+    .pid-header-row span:first-child { text-align: left; }
+    .pid-card-footer { padding: 10px 16px; border-top: 1px solid var(--border);
+                       display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+    .cli-block { background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+                 padding: 14px 16px; font-family: 'Courier New', monospace; font-size: 12px;
+                 color: var(--text2); margin-top: 14px; white-space: pre-wrap;
+                 max-height: 280px; overflow-y: auto; }
+    .cli-comment { color: var(--text2); opacity: .6; }
+    .cli-key   { color: var(--accent); }
+    .cli-val   { color: var(--success); }
+    .pid-explain { font-size: 12px; color: var(--text2); margin-top: 8px; }
+    .pid-explain li { margin-bottom: 4px; }
+
+    /* ── Footer ── */
+    footer { text-align: center; padding: 20px; color: var(--text2); font-size: 12px;
+             border-top: 1px solid var(--border); margin-top: 20px; }
+
+    /* ── Spinner ── */
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border);
+               border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Misc ── */
+    .no-data { text-align: center; padding: 40px; color: var(--text2); font-size: 13px; }
+    .confidence { font-size: 10px; padding: 1px 5px; border-radius: 3px; font-weight: 600; }
+    .conf-high   { background: rgba(63,185,80,.15);  color: var(--success); }
+    .conf-medium { background: rgba(210,153,34,.15); color: var(--warn); }
+    .conf-low    { background: rgba(248,81,73,.15);  color: var(--danger); }
+    .scroll-x { overflow-x: auto; }
+
+    /* ── Light Mode ── */
+    body.light-mode {
+      --bg:     #f0f2f5;
+      --surf:   #ffffff;
+      --surf2:  #f6f8fa;
+      --surf3:  #eaecef;
+      --border: #d0d7de;
+      --text:   #1f2328;
+      --text2:  #57606a;
+    }
+
+    /* ── Dark/Light Toggle ── */
+    .theme-toggle { background: none; border: 1px solid var(--border); color: var(--text2);
+                    border-radius: 6px; padding: 4px 9px; cursor: pointer; font-size: 14px;
+                    transition: all .15s; line-height: 1; }
+    .theme-toggle:hover { border-color: var(--accent); color: var(--text); }
+
+    /* ── Modal ── */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.65); display: flex;
+                     align-items: center; justify-content: center; z-index: 1000;
+                     opacity: 0; pointer-events: none; transition: opacity .2s; }
+    .modal-overlay.open { opacity: 1; pointer-events: auto; }
+    .modal-box { background: var(--surf); border: 1px solid var(--border); border-radius: 12px;
+                 padding: 24px; max-width: 560px; width: 90%; max-height: 85vh; overflow-y: auto; }
+    .modal-head { display: flex; align-items: flex-start; justify-content: space-between;
+                  margin-bottom: 16px; gap: 10px; }
+    .modal-head h2 { font-size: 16px; font-weight: 700; }
+    .modal-close { background: none; border: none; color: var(--text2); font-size: 22px;
+                   cursor: pointer; padding: 0 4px; line-height: 1; flex-shrink: 0; }
+    .modal-close:hover { color: var(--danger); }
+    .modal-cmd { background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+                 padding: 12px 14px; font-family: 'Courier New', monospace; font-size: 13px;
+                 color: var(--success); margin: 10px 0; display: flex;
+                 align-items: center; justify-content: space-between; gap: 10px; }
+    .modal-cmd code { flex: 1; word-break: break-all; }
+    .modal-note { font-size: 12px; color: var(--text2); margin: 5px 0; }
+    .modal-steps { font-size: 13px; counter-reset: step; list-style: none; margin: 10px 0; }
+    .modal-steps li { counter-increment: step; padding: 5px 0 5px 30px; position: relative; }
+    .modal-steps li::before { content: counter(step); position: absolute; left: 0; top: 5px;
+                              width: 20px; height: 20px; border-radius: 50%;
+                              background: rgba(88,166,255,.15); color: var(--accent);
+                              font-size: 11px; font-weight: 700; display: flex;
+                              align-items: center; justify-content: center; }
+
+    /* ── Progress Bar ── */
+    .progress-wrap { height: 4px; background: var(--surf2); border-radius: 2px; overflow: hidden;
+                     margin-bottom: 14px; display: none; }
+    .progress-wrap.visible { display: block; }
+    .progress-bar-fill { height: 100%; background: var(--accent); border-radius: 2px;
+                         width: 0; transition: width .18s ease; }
+
+    /* ── Analysis Settings Panel ── */
+    .settings-panel { background: var(--surf2); border: 1px solid var(--border); border-radius: 8px;
+                      padding: 10px 14px; margin-bottom: 14px; }
+    .settings-toggle-row { display: flex; align-items: center; gap: 6px; cursor: pointer;
+                           font-size: 12px; font-weight: 700; color: var(--text2);
+                           text-transform: uppercase; letter-spacing: .4px;
+                           user-select: none; padding: 2px 0; }
+    .settings-toggle-row .caret { font-size: 10px; transition: transform .2s; display: inline-block; }
+    .settings-panel.collapsed .caret { transform: rotate(-90deg); }
+    .settings-body { display: flex; flex-wrap: wrap; gap: 20px; padding-top: 12px; }
+    .settings-panel.collapsed .settings-body { display: none; }
+    .setting-item { display: flex; flex-direction: column; gap: 5px; min-width: 170px; }
+    .setting-item .s-label { display: flex; justify-content: space-between; align-items: center;
+                             font-size: 12px; color: var(--text2); }
+    .setting-item .s-label .s-val { font-weight: 700; color: var(--text); }
+    .setting-item .s-hint { font-size: 10px; color: var(--text2); opacity: .7; }
+    .setting-item input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
+    .setting-item .toggle-row { display: flex; align-items: center; gap: 8px; }
+    .setting-item input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px;
+                                         cursor: pointer; }
+
+    /* ── Advanced Upload Settings ── */
+    .adv-settings { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 8px; }
+    .adv-toggle { background: none; border: none; color: var(--text2); font-size: 11px;
+                  cursor: pointer; display: flex; align-items: center; gap: 4px;
+                  padding: 0; transition: color .15s; }
+    .adv-toggle:hover { color: var(--text); }
+    .adv-content { display: none; margin-top: 10px; }
+    .adv-content.open { display: flex; flex-direction: column; gap: 6px; }
+    .adv-row { display: flex; align-items: center; gap: 8px; font-size: 12px; flex-wrap: wrap; }
+    .adv-row label { color: var(--text2); cursor: pointer; }
+    .adv-row input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
+    .adv-row input[type=number] { width: 80px; background: var(--surf3); border: 1px solid var(--border);
+                                  color: var(--text); border-radius: 4px; padding: 3px 7px;
+                                  font-size: 12px; }
+    .adv-row input[type=number]:disabled { opacity: .4; }
+    .adv-hint { font-size: 11px; color: var(--text2); opacity: .7; }
+
+    /* ── Nav PID Groups (tune tab) ── */
+    .nav-pid-group { margin-bottom: 10px; }
+    .btn-xs { font-size:10px; padding:2px 6px; border-radius:3px; cursor:pointer; background:var(--accent,#3b82f6); color:#fff; border:none; vertical-align:middle; margin-left:6px; }
+    .btn-xs:hover { opacity:.85; }
+    .nav-scale-note { font-size:11px; color:var(--text2); margin:6px 0 0; padding:6px 8px; background:rgba(245,158,11,.08); border-radius:4px; border-left:3px solid #f59e0b; line-height:1.4; }
+    .nav-pid-sub { font-size: 10px; font-weight: 700; color: var(--accent); text-transform: uppercase;
+                   letter-spacing: .4px; margin-bottom: 4px; }
+    .nav-param-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .np-key { font-size: 11px; color: var(--text2); }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════ HEADER ═══════════════ -->
+<header id="app-header">
+  <div class="header-inner">
+    <div class="logo">
+      <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.8"
+           stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent)">
+        <circle cx="16" cy="16" r="3"/>
+        <circle cx="7"  cy="7"  r="4"/><circle cx="25" cy="7"  r="4"/>
+        <circle cx="7"  cy="25" r="4"/><circle cx="25" cy="25" r="4"/>
+        <line x1="10" y1="10" x2="13" y2="13"/>
+        <line x1="22" y1="10" x2="19" y2="13"/>
+        <line x1="10" y1="22" x2="13" y2="19"/>
+        <line x1="22" y1="22" x2="19" y2="19"/>
+      </svg>
+      <div><h1>INAV Auto Tuner</h1><p>Blackbox log analysis &amp; PID suggestion tool</p></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <div id="status-msg"></div>
+      <button id="btn-theme" class="theme-toggle" title="Switch to light mode">☀️</button>
+    </div>
+  </div>
+</header>
+
+<!-- ═══════════════ DECODE MODAL ═══════════════ -->
+<div id="decode-modal" class="modal-overlay" role="dialog" aria-modal="true">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h2>How to Decode .bbl / .bfl Files</h2>
+      <button class="modal-close" id="modal-close-btn" aria-label="Close">×</button>
+    </div>
+    <ol class="modal-steps">
+      <li>Download <a href="https://github.com/iNavFlight/blackbox-tools/releases" target="_blank" rel="noopener noreferrer">blackbox-tools</a> from the INAV releases page.</li>
+      <li>Open a terminal / command prompt in the folder containing your log file.</li>
+      <li>Run the decode command (replace <code>yourlog.bbl</code> with your filename):</li>
+    </ol>
+    <div class="modal-cmd">
+      <code id="decode-cmd-text">blackbox_decode yourlog.bbl</code>
+      <button class="btn-copy" id="btn-copy-cmd">📋 Copy</button>
+    </div>
+    <p class="modal-note">This generates <strong>yourlog.01.csv</strong> (one CSV per flight session stored in the log).</p>
+    <p class="modal-note">Windows: rename <code>blackbox_decode_win64.exe</code> → <code>blackbox_decode.exe</code> first.</p>
+    <p class="modal-note" style="margin-top:10px">Alternatively use
+      <a href="https://github.com/iNavFlight/INAV-Blackbox-Explorer" target="_blank" rel="noopener noreferrer">INAV Blackbox Explorer</a>
+      → File → Export as CSV.
+    </p>
+  </div>
+</div>
+
+<!-- ═══════════════ MAIN ═══════════════ -->
+<main id="app-main">
+
+  <!-- Upload Section -->
+  <section id="upload-section">
+    <div id="drop-zone">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+      <p>Drag &amp; drop INAV blackbox logs here</p>
+      <p>or <label class="browse-label" for="file-input">Browse Files</label></p>
+      <p class="hint">Supports decoded .csv — multiple files allowed</p>
+      <button class="btn-sm" id="btn-decode-guide" style="margin-top:8px">📖 How to decode .bbl / .bfl</button>
+      <input type="file" id="file-input" multiple accept=".csv,.bbl,.bfl" hidden />
+      <div class="adv-settings">
+        <button class="adv-toggle" id="adv-settings-toggle">▶ Advanced Options</button>
+        <div class="adv-content" id="adv-content">
+          <div class="adv-row">
+            <input type="checkbox" id="gyro-scale-override" />
+            <label for="gyro-scale-override">Manual gyro scale override</label>
+            <input type="number" id="gyro-scale-val" value="16.384" step="0.001" min="0.001"
+                   disabled title="Raw ADC ÷ this factor → deg/s (e.g. 16.384 for ±2000 deg/s 16-bit)" />
+            <span style="color:var(--text2)">÷ factor</span>
+          </div>
+          <p class="adv-hint">Auto-detect applies ÷16.384 when raw ADC ∣values∣ &gt;5000. Override disables auto-detect.</p>
+        </div>
+      </div>
+    </div>
+    <div id="log-list">
+      <h3>Loaded Logs</h3>
+      <div id="log-items"><p class="log-empty">No logs loaded yet</p></div>
+    </div>
+  </section>
+
+  <!-- Main Panel -->
+  <section id="main-panel">
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="visualize">📊 Visualize</button>
+      <button class="tab-btn" data-tab="analyze">🔬 Analyze</button>
+      <button class="tab-btn" data-tab="tune">🎯 Tune PIDs</button>
+    </div>
+
+    <!-- ── VISUALIZE TAB ── -->
+    <div id="tab-visualize" class="tab-content active">
+      <div class="viz-controls">
+        <label>Log: <select id="log-selector"><option value="">— load a file —</option></select></label>
+        <div class="chart-sub-tabs">
+          <button class="csub-btn active" data-ctab="attitude">Attitude</button>
+          <button class="csub-btn" data-ctab="motors">Motors</button>
+          <button class="csub-btn" data-ctab="navigation">Navigation</button>
+        </div>
+        <button class="btn-sm" id="btn-reset-zoom">Reset Zoom</button>
+      </div>
+      <!-- Attitude -->
+      <div id="ctab-attitude" class="chart-tab-pane active">
+        <div class="chart-grid">
+          <div class="chart-card"><h3>Roll — Gyro vs Setpoint</h3><canvas id="chart-roll"></canvas></div>
+          <div class="chart-card"><h3>Pitch — Gyro vs Setpoint</h3><canvas id="chart-pitch"></canvas></div>
+          <div class="chart-card"><h3>Yaw — Gyro vs Setpoint</h3><canvas id="chart-yaw"></canvas></div>
+          <div class="chart-card"><h3>Noise Spectrum (PSD)</h3><canvas id="chart-spectrum"></canvas></div>
+        </div>
+      </div>
+      <!-- Motors -->
+      <div id="ctab-motors" class="chart-tab-pane">
+        <div class="chart-grid span1">
+          <div class="chart-card tall"><h3>Motor Outputs [0–3]</h3><canvas id="chart-motors"></canvas></div>
+        </div>
+      </div>
+      <!-- Navigation -->
+      <div id="ctab-navigation" class="chart-tab-pane">
+        <div class="chart-grid">
+          <div class="chart-card"><h3>Navigation Position (cm)</h3><canvas id="chart-navpos"></canvas></div>
+          <div class="chart-card"><h3>Navigation Velocity (cm/s)</h3><canvas id="chart-navvel"></canvas></div>
+        </div>
+      </div>
+      <div id="viz-no-data" class="no-data">Load a log file to see charts.</div>
+    </div>
+
+    <!-- ── ANALYZE TAB ── -->
+    <div id="tab-analyze" class="tab-content">
+      <!-- Settings Panel -->
+      <div class="settings-panel collapsed" id="analysis-settings">
+        <div class="settings-toggle-row" id="settings-toggle-row">
+          <span class="caret">▼</span> ⚙️ Analysis Settings
+        </div>
+        <div class="settings-body">
+          <div class="setting-item">
+            <div class="s-label">Step threshold <span class="s-val" id="step-thresh-val">80 deg/s</span>
+              <button id="btn-auto-thresh" class="btn-xs" title="Auto-detect best threshold from loaded logs based on stick movement distribution">🔍 Auto</button>
+            </div>
+            <input type="range" id="step-thresh" min="50" max="150" value="80" step="5"
+              title="Step threshold: minimum setpoint jump in deg/s to count as a step input. Lower (50 deg/s) for gentle or cinematic flights; higher (120+ deg/s) for aggressive or racing flying. If too low, noise triggers false steps; if too high, real inputs are missed." />
+            <span class="s-hint">Min setpoint jump to count as a step input</span>
+          </div>
+          <div class="setting-item">
+            <div class="s-label">Min step duration <span class="s-val" id="step-dur-val">30 ms</span></div>
+            <input type="range" id="step-dur" min="0" max="150" value="30" step="5"
+              title="Min step duration: the setpoint must hold at the new level for at least this many milliseconds. Prevents brief noise spikes from being counted as valid step inputs. Use 0ms for slowest sticks; 30–50ms for most flying styles; 80ms+ to demand very deliberate inputs only." />
+            <span class="s-hint">Setpoint must hold at new level this long (filters noise spikes)</span>
+          </div>
+          <div class="setting-item">
+            <div class="s-label">Average logs</div>
+            <div class="toggle-row">
+              <input type="checkbox" id="avg-logs" checked />
+              <label for="avg-logs" style="font-size:12px;color:var(--text2)">Weight by log duration</label>
+            </div>
+            <span class="s-hint">Longer logs contribute more to averaged results</span>
+          </div>
+        </div>
+      </div>
+      <div class="action-bar">
+        <button id="btn-analyze" class="btn-primary" disabled>🔬 Run Analysis</button>
+        <span id="analyze-hint" class="hint">Upload one or more logs first</span>
+      </div>
+      <div class="progress-wrap" id="analysis-progress">
+        <div class="progress-bar-fill" id="progress-bar-inner"></div>
+      </div>
+      <div id="analysis-output"><div class="no-data">Run analysis to see results.</div></div>
+    </div>
+
+    <!-- ── TUNE TAB ── -->
+    <div id="tab-tune" class="tab-content">
+      <div class="action-bar">
+        <button id="btn-generate" class="btn-primary" disabled>🎯 Generate PID Suggestions</button>
+        <button id="btn-export"   class="btn-secondary" disabled>⬇️ Export JSON</button>
+        <button id="btn-load-session" class="btn-secondary">📂 Load Session JSON</button>
+        <input type="file" id="session-file-input" accept=".json" hidden />
+        <span id="tune-hint" class="hint">Run analysis first</span>
+      </div>
+      <div id="pid-output"><div class="no-data">Generate PID suggestions to see results.</div></div>
+    </div>
+  </section>
+</main>
+
+<footer>INAV Auto Tuner — Analyze blackbox logs to generate PID suggestions for autonomous flight.<br>
+  Values are suggestions only — always bench-test before flying.</footer>
+
+<!-- ═══════════════ SCRIPT ═══════════════ -->
+<script>
+'use strict';
+
+/* ════════════════════════════════════════════════
+   UTILITIES
+════════════════════════════════════════════════ */
+const $  = id => document.getElementById(id);
+const el = (tag, cls, html) => { const e = document.createElement(tag); if(cls) e.className=cls; if(html) e.innerHTML=html; return e; };
+const clamp  = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const rms    = arr => arr.length ? Math.sqrt(arr.reduce((s,v)=>s+v*v,0)/arr.length) : 0;
+const mean   = arr => arr.length ? arr.reduce((s,v)=>s+v,0)/arr.length : 0;
+const arrMax = arr => arr.reduce((m,v)=>v>m?v:m, -Infinity);
+const arrMin = arr => arr.reduce((m,v)=>v<m?v:m,  Infinity);
+const round1 = v => Math.round(v*10)/10;
+const round2 = v => Math.round(v*100)/100;
+const safeDiv = (a,b,def=0) => (b !== 0 ? a/b : def);
+
+/* ════════════════════════════════════════════════
+   APPLICATION STATE
+════════════════════════════════════════════════ */
+const State = {
+  logs:      [],   // parsed log objects
+  analyses:  [],   // per-log analysis results
+  pids:      null, // generated PID variants
+  charts:    {},   // Chart.js instances keyed by id
+};
+
+/* ════════════════════════════════════════════════
+   ANALYSIS SETTINGS (live, editable via UI)
+════════════════════════════════════════════════ */
+const Settings = {
+  stepThresh:       80,     // deg/s — minimum setpoint jump to count as step
+  stepMinDurMs:     30,     // ms    — setpoint must hold at new level this long
+  avgByDuration:    true,   // weight averaged results by log duration
+  gyroScaleAuto:    true,   // auto-detect ÷16.384
+  gyroScaleFactor:  16.384, // manual override division factor
+};
+
+/* ════════════════════════════════════════════════
+   CSV PARSER
+════════════════════════════════════════════════ */
+function parseCSV(text, filename) {
+  const lines = text.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');
+
+  // Skip comment / metadata lines to find header row
+  let hdr = 0;
+  for (let i = 0; i < Math.min(lines.length, 20); i++) {
+    const l = lines[i].trim();
+    if (!l || l.startsWith('//') || l.startsWith('#') || l.startsWith('Product')) continue;
+    if (l.includes(',') && /[a-zA-Z]/.test(l)) { hdr = i; break; }
+  }
+
+  const rawHeaders = lines[hdr].split(',').map(h => h.trim().toLowerCase());
+  if (rawHeaders.length < 3) throw new Error('Cannot find valid header row');
+
+  // Flexible column finder
+  const col = (...patterns) => {
+    for (const p of patterns) {
+      const idx = rawHeaders.findIndex(h =>
+        (typeof p === 'string') ? h === p : p.test(h));
+      if (idx >= 0) return idx;
+    }
+    return -1;
+  };
+
+  const C = {
+    time:    col('time (us)', 'time', 'timestamp'),
+    gyro:   [col('gyroadc[0]','gyro[0]','gyro_roll'),
+             col('gyroadc[1]','gyro[1]','gyro_pitch'),
+             col('gyroadc[2]','gyro[2]','gyro_yaw')],
+    sp:     [col('setpoint[0]'), col('setpoint[1]'), col('setpoint[2]')],
+    accel:  [col('accsmooth[0]','accel[0]'), col('accsmooth[1]','accel[1]'), col('accsmooth[2]','accel[2]')],
+    motor:  [col('motor[0]'), col('motor[1]'), col('motor[2]'), col('motor[3]')],
+    navPos:    [col('navpos[0]'), col('navpos[1]'), col('navpos[2]')],
+    navVel:    [col('navvel[0]'), col('navvel[1]'), col('navvel[2]')],
+    navTgtPos: [col('navtgtpos[0]',/navtgtpos\[0\]/), col('navtgtpos[1]',/navtgtpos\[1\]/), col('navtgtpos[2]',/navtgtpos\[2\]/)],
+    navPID:    [col('navpid[0]'), col('navpid[1]'), col('navpid[2]')],
+    wind:   [col('wind[0]'), col('wind[1]'), col('wind[2]')],
+    debug:  [col('debug[0]'), col('debug[1]'), col('debug[2]'), col('debug[3]')],
+  };
+  if (C.time < 0) throw new Error('No time column found');
+
+  const has = arr => arr.some(i => i >= 0);
+  const hasGyro = has(C.gyro), hasSP = has(C.sp), hasMotors = has(C.motor);
+  const hasNav        = has(C.navPos) || has(C.navVel);
+  const hasNavTgtCols = has(C.navTgtPos);
+  const hasWindCols   = has(C.wind);
+  if (!hasGyro) throw new Error('No gyro columns found (expected gyroADC[0-2] or gyro[0-2])');
+
+  // Build data arrays
+  const data = {
+    filename, sampleCount: 0, sampleRate: 1000,
+    time: [], gyro: [[],[],[]], sp: [[],[],[]], accel: [[],[],[]],
+    motor: [[],[],[],[]], navPos: [[],[],[]], navVel: [[],[],[]],
+    navTgtPos: [[],[],[]], navPID: [[],[],[]], wind: [[],[],[]],
+    debug: [[],[],[],[]],
+    hasGyro, hasSP, hasMotors, hasNav, hasNavTgtCols, hasWindCols,
+  };
+
+  for (let i = hdr + 1; i < lines.length; i++) {
+    const p = lines[i].split(',');
+    if (p.length < 3) continue;
+    const g = (ci) => ci >= 0 ? (parseFloat(p[ci]) || 0) : 0;
+    data.time.push(g(C.time));
+    for (let a = 0; a < 3; a++) {
+      data.gyro[a].push(g(C.gyro[a]));
+      data.sp[a].push(g(C.sp[a]));
+      data.accel[a].push(g(C.accel[a]));
+      data.navPos[a].push(g(C.navPos[a]));
+      data.navVel[a].push(g(C.navVel[a]));
+      data.navTgtPos[a].push(g(C.navTgtPos[a]));
+      data.navPID[a].push(g(C.navPID[a]));
+      data.wind[a].push(g(C.wind[a]));
+    }
+    for (let m = 0; m < 4; m++) data.motor[m].push(g(C.motor[m]));
+    for (let d = 0; d < 4; d++) data.debug[d].push(g(C.debug[d]));
+  }
+  data.sampleCount = data.time.length;
+  if (data.sampleCount < 10) throw new Error('Log has fewer than 10 data rows');
+
+  // Gyro scaling: manual override takes priority over auto-detect
+  const gyroMax = arrMax(data.gyro[0].slice(0, 200).map(Math.abs));
+  if (!Settings.gyroScaleAuto) {
+    const f = Settings.gyroScaleFactor;
+    for (let a = 0; a < 3; a++) data.gyro[a] = data.gyro[a].map(v => v / f);
+    data.gyroScaleApplied = f;
+  } else if (gyroMax > 5000) {
+    for (let a = 0; a < 3; a++) data.gyro[a] = data.gyro[a].map(v => v / 16.384);
+    data.gyroScaleApplied = 16.384;
+  }
+
+  // Compute sample rate from time column (μs)
+  if (data.sampleCount > 1) {
+    const dtUs = (data.time[data.sampleCount-1] - data.time[0]) / (data.sampleCount - 1);
+    data.sampleRate = dtUs > 0 ? Math.round(1e6 / dtUs) : 1000;
+  }
+  data.duration = data.sampleCount / data.sampleRate; // seconds
+
+  return data;
+}
+
+/* ════════════════════════════════════════════════
+   FFT — Cooley-Tukey radix-2 DIT + Welch PSD
+════════════════════════════════════════════════ */
+function fftCooleyTukey(re, im) {
+  const n = re.length;
+  // Bit-reversal permutation
+  let j = 0;
+  for (let i = 1; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) {
+      let t = re[i]; re[i] = re[j]; re[j] = t;
+          t = im[i]; im[i] = im[j]; im[j] = t;
+    }
+  }
+  // Butterfly passes
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = -2 * Math.PI / len;
+    const wRe = Math.cos(ang), wIm = Math.sin(ang);
+    for (let i = 0; i < n; i += len) {
+      let cRe = 1, cIm = 0;
+      const half = len >> 1;
+      for (let k = 0; k < half; k++) {
+        const uRe = re[i+k], uIm = im[i+k];
+        const vRe = re[i+k+half]*cRe - im[i+k+half]*cIm;
+        const vIm = re[i+k+half]*cIm + im[i+k+half]*cRe;
+        re[i+k]      = uRe+vRe; im[i+k]      = uIm+vIm;
+        re[i+k+half] = uRe-vRe; im[i+k+half] = uIm-vIm;
+        const nr = cRe*wRe - cIm*wIm; cIm = cRe*wIm + cIm*wRe; cRe = nr;
+      }
+    }
+  }
+}
+
+function hannWin(n) {
+  const w = new Float64Array(n);
+  for (let i = 0; i < n; i++) w[i] = 0.5*(1 - Math.cos(2*Math.PI*i/(n-1)));
+  return w;
+}
+
+// Welch power spectral density estimate
+function welchPSD(signal, sampleRate, segLen = 4096) {
+  // Clamp segLen to power-of-2 ≤ signal.length
+  while (segLen > signal.length) segLen >>= 1;
+  if (segLen < 64) return { freqs: [], psd: [] };
+
+  const hop  = segLen >> 1; // 50 % overlap
+  const win  = hannWin(segLen);
+  const nSeg = Math.floor((signal.length - segLen) / hop) + 1;
+  const psd  = new Float64Array(segLen >> 1);
+  const re   = new Float64Array(segLen);
+  const im   = new Float64Array(segLen);
+
+  for (let s = 0; s < nSeg; s++) {
+    const off = s * hop;
+    re.fill(0); im.fill(0);
+    for (let i = 0; i < segLen; i++) re[i] = signal[off+i] * win[i];
+    fftCooleyTukey(re, im);
+    for (let i = 0; i < segLen>>1; i++) psd[i] += re[i]*re[i] + im[i]*im[i];
+  }
+  const df = sampleRate / segLen;
+  const freqs = Array.from({length: segLen>>1}, (_,i) => i*df);
+  for (let i = 0; i < psd.length; i++) psd[i] /= nSeg;
+  return { freqs, psd: Array.from(psd) };
+}
+
+function spectralPeaks(psd, freqs, fMin=20, fMax=500, topN=3) {
+  const i0 = freqs.findIndex(f => f >= fMin);
+  const i1 = freqs.findIndex(f => f >  fMax); const iEnd = i1 < 0 ? freqs.length : i1;
+  if (i0 < 0 || iEnd <= i0) return [];
+  const slice  = psd.slice(i0, iEnd);
+  const thresh = arrMax(slice) * 0.12;
+  const peaks  = [];
+  for (let i = 1; i < slice.length-1; i++) {
+    if (slice[i] > slice[i-1] && slice[i] > slice[i+1] && slice[i] > thresh) {
+      peaks.push({ freq: freqs[i0+i], magnitude: slice[i] });
+    }
+  }
+  peaks.sort((a,b) => b.magnitude - a.magnitude);
+  return peaks.slice(0, topN);
+}
+
+/* ════════════════════════════════════════════════
+   STEP RESPONSE ANALYSIS
+════════════════════════════════════════════════ */
+const STEP_WINDOW  = 0.5;  // seconds to analyse after step
+const STEP_MIN_GAP = 0.6;  // seconds between steps
+
+// stepThresh & stepMinDurMs come from Settings at call time
+function detectSteps(sp, sampleRate, stepThresh, stepMinDurMs) {
+  const minGap      = Math.round(STEP_MIN_GAP * sampleRate);
+  const minDurSamples = Math.round((stepMinDurMs / 1000) * sampleRate);
+  const steps = [];
+  let last = -minGap;
+  for (let i = 1; i < sp.length; i++) {
+    if (Math.abs(sp[i] - sp[i-1]) >= stepThresh && i - last >= minGap) {
+      // Min-duration filter: setpoint must hold in new direction for minDurSamples
+      if (minDurSamples > 1) {
+        const dir = sp[i] > sp[i-1] ? 1 : -1;
+        const refVal = sp[i-1];
+        let durable = true;
+        const checkEnd = Math.min(i + minDurSamples, sp.length - 1);
+        for (let k = i; k <= checkEnd; k++) {
+          if (dir * (sp[k] - refVal) < stepThresh * 0.5) { durable = false; break; }
+        }
+        if (!durable) continue;
+      }
+      steps.push(i);
+      last = i;
+    }
+  }
+  return steps;
+}
+
+function analyseWindow(gyroW, spW, sampleRate) {
+  if (!gyroW.length) return null;
+  const sp0 = spW[0], spFinal = spW[Math.min(20, spW.length-1)];
+  const range = spFinal - sp0;
+  if (Math.abs(range) < 30) return null;
+
+  const lo10 = sp0 + range * 0.10;
+  const hi90 = sp0 + range * 0.90;
+  const dt   = 1 / sampleRate;
+  let t10 = -1, t90 = -1, peak = gyroW[0], peakIdx = 0;
+
+  for (let i = 0; i < gyroW.length; i++) {
+    const g = gyroW[i];
+    if (t10 < 0 && ((range>0 ? g>=lo10 : g<=lo10))) t10 = i*dt;
+    if (t90 < 0 && ((range>0 ? g>=hi90 : g<=hi90))) t90 = i*dt;
+    if (Math.abs(g - sp0) > Math.abs(peak - sp0)) { peak = g; peakIdx = i; }
+  }
+
+  const riseTime     = (t10>=0 && t90>=0) ? Math.max(0.001, t90-t10) : Math.abs(range)/200;
+  const overshoot    = Math.abs(range)>1 ? Math.max(0, (Math.abs(peak-spFinal)/Math.abs(range))*100) : 0;
+  const settlingTime = peakIdx * dt;
+
+  // Steady-state RMS error in 2nd half of window
+  const half = Math.floor(gyroW.length/2);
+  const errors = gyroW.slice(half).map((g,i) => g - spW[half+i]);
+  const rmsError = rms(errors);
+
+  return { riseTime, overshoot, settlingTime, rmsError };
+}
+
+function analyseAxis(gyro, sp, sampleRate) {
+  const winLen  = Math.round(STEP_WINDOW * sampleRate);
+  const steps   = detectSteps(sp, sampleRate, Settings.stepThresh, Settings.stepMinDurMs);
+  const results = [];
+  for (const si of steps) {
+    const end   = Math.min(si+winLen, gyro.length);
+    const r = analyseWindow(gyro.slice(si, end), sp.slice(si, end), sampleRate);
+    if (r) results.push(r);
+  }
+  if (!results.length) return null;
+  return {
+    count:          results.length,
+    avgRiseTime:    mean(results.map(r=>r.riseTime)),
+    avgOvershoot:   mean(results.map(r=>r.overshoot)),
+    avgSettling:    mean(results.map(r=>r.settlingTime)),
+    rmsError:       mean(results.map(r=>r.rmsError)),
+  };
+}
+
+/* ════════════════════════════════════════════════
+   NAVIGATION ANALYSIS
+════════════════════════════════════════════════ */
+function analyseNav(logData) {
+  const { navPos, navVel, navTgtPos, wind, sampleRate, duration } = logData;
+  const nonzero = arr => arr.some(v => v !== 0);
+  const hasPos = nonzero(navPos[0]) || nonzero(navPos[1]);
+  const hasVel = nonzero(navVel[0]) || nonzero(navVel[1]);
+  if (!hasPos && !hasVel) return { hasNavData: false };
+
+  const posRMS  = [0,1,2].map(a => rms(navPos[a].map(v => v - mean(navPos[a]))));
+  const velRMS  = [0,1,2].map(a => rms(navVel[a]));
+  const maxDrift = [0,1,2].map(a => {
+    const mn = mean(navPos[a]);
+    return arrMax(navPos[a].map(v => Math.abs(v - mn)));
+  });
+  const xyPosRMS = Math.sqrt((posRMS[0]**2 + posRMS[1]**2) / 2);
+  const xyVelRMS = Math.sqrt((velRMS[0]**2 + velRMS[1]**2) / 2);
+
+  // Poshold cross-track error: distance from intended target (navTgtPos)
+  let posHoldError = null;
+  if (navTgtPos && (nonzero(navTgtPos[0]) || nonzero(navTgtPos[1]))) {
+    const errXY = navPos[0].map((p, i) => {
+      const dx = p - navTgtPos[0][i];
+      const dy = navPos[1][i] - navTgtPos[1][i];
+      return Math.sqrt(dx*dx + dy*dy);
+    });
+    posHoldError = { rms: rms(errXY), max: arrMax(errXY), mean: mean(errXY) };
+  }
+
+  // Wind estimate (cm/s)
+  let windEst = null;
+  if (wind && (nonzero(wind[0]) || nonzero(wind[1]))) {
+    const windMag = wind[0].map((w, i) => Math.sqrt(w*w + wind[1][i]*wind[1][i]));
+    windEst = {
+      meanMagMs: mean(windMag) / 100,
+      maxMagMs:  arrMax(windMag) / 100,
+      dirDeg:    Math.atan2(mean(wind[1]), mean(wind[0])) * 180 / Math.PI,
+    };
+  }
+
+  return { hasNavData: true, posRMS, velRMS, maxDrift, xyPosRMS, xyVelRMS,
+           duration, posHoldError, windEst,
+           hasNavTgtCols: !!logData.hasNavTgtCols,
+           hasWindCols:   !!logData.hasWindCols };
+}
+
+/* ════════════════════════════════════════════════
+   NOISE ANALYSIS
+════════════════════════════════════════════════ */
+function analyseNoise(logData) {
+  const { gyro, sampleRate } = logData;
+  const axisNames = ['Roll','Pitch','Yaw'];
+  const axes = axisNames.map((name, a) => {
+    const segLen  = Math.min(4096, 1<<Math.floor(Math.log2(gyro[a].length)));
+    const { freqs, psd } = welchPSD(gyro[a], sampleRate, segLen);
+    const peaks   = spectralPeaks(psd, freqs, 20, Math.min(sampleRate/2, 500));
+    const noiseFloor = freqs.length ? mean(psd.slice(Math.floor(freqs.length*0.6))) : 0;
+    const totalPower = freqs.length ? psd.reduce((s,v)=>s+v,0) : 0;
+    const dominantFreq = peaks.length ? peaks[0].freq : 0;
+    return { name, peaks, noiseFloor, totalPower, dominantFreq, freqs, psd };
+  });
+  // Noise severity heuristic (relative to total power)
+  const severity = axis => {
+    const hfPower = axis.psd.slice(Math.floor(axis.psd.length*0.2)).reduce((s,v)=>s+v,0);
+    const ratio   = safeDiv(hfPower, axis.totalPower);
+    return ratio > 0.4 ? 'high' : ratio > 0.2 ? 'medium' : 'low';
+  };
+  return axes.map(a => ({ ...a, severity: severity(a) }));
+}
+
+/* ════════════════════════════════════════════════
+   FULL LOG ANALYSIS
+════════════════════════════════════════════════ */
+function analyseLog(logData) {
+  const noise = analyseNoise(logData);
+  const step  = {
+    roll:  analyseAxis(logData.gyro[0], logData.sp[0], logData.sampleRate),
+    pitch: analyseAxis(logData.gyro[1], logData.sp[1], logData.sampleRate),
+    yaw:   analyseAxis(logData.gyro[2], logData.sp[2], logData.sampleRate),
+  };
+  const nav   = analyseNav(logData);
+  const warnings = buildWarnings(logData, noise, step, nav);
+  return { logData, noise, step, nav, warnings };
+}
+
+function buildWarnings(logData, noise, step, nav) {
+  const W = [];
+  const w = (msg, lvl) => W.push({ msg, lvl });
+
+  if (logData.duration < 10)
+    w(`Short log (${round1(logData.duration)}s) — results may be unreliable. Aim for >30s of flying.`, 'warn');
+
+  // Setpoint variation check: if stick never moved on any axis, step response is invalid
+  const spStdDev = logData.sp.map(axis => {
+    const mn = mean(axis);
+    return Math.sqrt(mean(axis.map(v => (v - mn)**2)));
+  });
+  if (spStdDev.every(sd => sd < 5))
+    w('No aggressive maneuvers detected (setpoints nearly static). PID step-response suggestions will be unreliable — perform some rolls/flips/yaw inputs and re-analyse.', 'warn');
+  else {
+    ['Roll','Pitch','Yaw'].forEach((name, a) => {
+      if (spStdDev[a] < 5)
+        w(`No ${name} stick movement detected. ${name} PIDs based on defaults only.`, 'info');
+    });
+  }
+
+  ['Roll','Pitch','Yaw'].forEach((name, a) => {
+    const n = noise[a];
+    if (n.severity === 'high')
+      w(`High HF noise on ${name} gyro (dominant ${round1(n.dominantFreq)} Hz). Check motor/prop balance and filter settings.`, 'error');
+    else if (n.severity === 'medium')
+      w(`Moderate noise on ${name} gyro (dominant ${round1(n.dominantFreq)} Hz). Review RPM filters.`, 'warn');
+  });
+
+  const axes = [{k:'roll',n:'Roll'},{k:'pitch',n:'Pitch'},{k:'yaw',n:'Yaw'}];
+  axes.forEach(({k,n}) => {
+    const s = step[k];
+    if (!s) { w(`No step responses detected on ${n}. Perform stick inputs for better analysis.`, 'info'); return; }
+    if (s.count < 3) w(`Only ${s.count} step(s) detected on ${n}. More stick inputs improve accuracy.`, 'info');
+    if (s.avgOvershoot > 25) w(`High overshoot on ${n} (${round1(s.avgOvershoot)}%). P gain likely too high or D too low.`, 'error');
+    else if (s.avgOvershoot > 12) w(`Moderate overshoot on ${n} (${round1(s.avgOvershoot)}%). D gain may need increase.`, 'warn');
+    if (s.avgRiseTime > 0.15) w(`Slow response on ${n} (rise time ${round1(s.avgRiseTime*1000)}ms). P gain may be too low.`, 'warn');
+  });
+
+  if (nav.hasNavData) {
+    if (nav.xyPosRMS > 200) w(`Large horizontal pos drift (${round1(nav.xyPosRMS/100)}m RMS). Consider increasing nav_mc_pos_xy_p / vel_xy_p.`, 'error');
+    else if (nav.xyPosRMS > 100) w(`Elevated horizontal drift (${round1(nav.xyPosRMS/100)}m RMS). Nav PIDs may need tuning.`, 'warn');
+    if (nav.posRMS[2] > 50) w(`Vertical position drift (${round1(nav.posRMS[2]/100)}m RMS). Check nav_mc_pos_z_p / vel_z_p.`, 'warn');
+    if (nav.posHoldError) {
+      if (nav.posHoldError.rms > 200) w(`Large poshold cross-track error (${round1(nav.posHoldError.rms/100)}m RMS vs navTgtPos). Increase vel_xy_p or pos_xy_p.`, 'error');
+      else if (nav.posHoldError.rms > 100) w(`Elevated poshold error (${round1(nav.posHoldError.rms/100)}m RMS vs navTgtPos).`, 'warn');
+    } else if (!nav.hasNavTgtCols) {
+      w('No nav target columns found (navTgtPos[0-2]) — posHoldError unavailable. Enable nav_mc_pos_xy logging in INAV Configurator for position-hold accuracy metrics.', 'info');
+    }
+    if (!nav.hasWindCols) {
+      w('No wind estimate columns (wind[0-2]) found — windEst unavailable. Enable wind estimator logging in INAV Configurator for wind compensation metrics.', 'info');
+    }
+  } else {
+    w('No navigation data found. Nav PID suggestions will use default INAV values.', 'info');
+  }
+  return W;
+}
+
+/* ════════════════════════════════════════════════
+   PID CALCULATION
+════════════════════════════════════════════════ */
+const PID_BOUNDS = {
+  P: [10, 80], I: [15, 100], D: [0, 50], FF: [0, 250],
+};
+const NAV_BOUNDS = {
+  pos_xy_p: [20,150], vel_xy_p: [80,400], vel_xy_i: [5,60], vel_xy_d: [20,200],
+  pos_z_p:  [20,100], vel_z_p:  [40,300], vel_z_i:  [10,80], vel_z_d:  [0,50],
+};
+
+function calcAxisPID(stepRes, noiseInfo, isYaw) {
+  if (!stepRes) {
+    return isYaw
+      ? { P:40, I:60, D:0,  FF:80,  confidence:'low' }
+      : { P:40, I:50, D:22, FF:100, confidence:'low' };
+  }
+  const { avgRiseTime, avgOvershoot, rmsError, count } = stepRes;
+
+  // P from rise time: target ~50ms, scaling linearly
+  const TARGET_RT = 0.05;
+  const P = Math.round(clamp(40 * safeDiv(TARGET_RT, Math.max(avgRiseTime, 0.01)), PID_BOUNDS.P[0], PID_BOUNDS.P[1]));
+
+  // D from overshoot
+  const dampFactor = avgOvershoot > 25 ? 0.65
+                   : avgOvershoot > 15 ? 0.55
+                   : avgOvershoot >  5 ? 0.45 : 0.35;
+  const D = isYaw ? 0 : Math.round(clamp(P * dampFactor, PID_BOUNDS.D[0], PID_BOUNDS.D[1]));
+
+  // I from steady-state error
+  const I = Math.round(clamp(50 - (rmsError - 8) * 0.6, PID_BOUNDS.I[0], PID_BOUNDS.I[1]));
+
+  // FF default — adjust based on rise time vs target
+  const FF = Math.round(clamp(100 * (avgRiseTime > TARGET_RT ? 1.2 : 0.9),
+    PID_BOUNDS.FF[0], PID_BOUNDS.FF[1]));
+
+  const confidence = count >= 6 ? 'high' : count >= 3 ? 'medium' : 'low';
+  return { P, I, D, FF, confidence };
+}
+
+function calcNavPIDs(navResults) {
+  // Average nav analysis across logs that have data
+  const navList = navResults.filter(n => n && n.hasNavData);
+  if (!navList.length) {
+    return { pos_xy_p:65, vel_xy_p:180, vel_xy_i:15, vel_xy_d:100,
+             pos_z_p:50,  vel_z_p:100,  vel_z_i:50,  vel_z_d:10, fromData:false };
+  }
+  const avgXYRMS  = mean(navList.map(n => n.xyPosRMS));
+  const avgZRMS   = mean(navList.map(n => n.posRMS[2]));
+  const avgXYVRMS = mean(navList.map(n => n.xyVelRMS));
+
+  // Scale nav position P based on observed drift (1m = 100cm baseline)
+  const xyScale = avgXYRMS > 200 ? 1.20 : avgXYRMS > 100 ? 1.10 : 1.0;
+  const zScale  = avgZRMS   > 100 ? 1.15 : avgZRMS  > 50  ? 1.08 : 1.0;
+
+  // velocity P: if velocity is choppy (high vel RMS), reduce to avoid oscillation
+  const vxyScale = avgXYVRMS > 200 ? 0.85 : avgXYVRMS > 100 ? 0.92 : 1.0;
+
+  const nc = (key, base, scale) => Math.round(clamp(base*scale, NAV_BOUNDS[key][0], NAV_BOUNDS[key][1]));
+  return {
+    pos_xy_p:  nc('pos_xy_p',  65,  xyScale),
+    vel_xy_p:  nc('vel_xy_p', 180, vxyScale),
+    vel_xy_i:  nc('vel_xy_i',  15, 1.0),
+    vel_xy_d:  nc('vel_xy_d', 100, 1.0),
+    pos_z_p:   nc('pos_z_p',   50,  zScale),
+    vel_z_p:   nc('vel_z_p',  100, 1.0),
+    vel_z_i:   nc('vel_z_i',   50, 1.0),
+    vel_z_d:   nc('vel_z_d',   10, 1.0),
+    fromData: true, xyScale, zScale,
+  };
+}
+
+function averageStepResults(results, weights) {
+  const valid = results.filter(Boolean);
+  if (!valid.length) return null;
+
+  if (!Settings.avgByDuration || !weights) {
+    // Simple unweighted average
+    const avg = k => mean(valid.map(r => r[k]));
+    return {
+      count:        valid.reduce((s,r) => s+r.count, 0),
+      avgRiseTime:  avg('avgRiseTime'),
+      avgOvershoot: avg('avgOvershoot'),
+      avgSettling:  avg('avgSettling'),
+      rmsError:     avg('rmsError'),
+    };
+  }
+  // Weighted average: each result weighted by its log's duration
+  const validWeights = results.map((r, i) => r ? (weights[i] || 1) : 0);
+  const totalW = validWeights.reduce((s, w) => s + w, 0) || 1;
+  const wavg = k => results.reduce((s, r, i) => r ? s + r[k] * validWeights[i] : s, 0) / totalW;
+  return {
+    count:        valid.reduce((s,r) => s+r.count, 0),
+    avgRiseTime:  wavg('avgRiseTime'),
+    avgOvershoot: wavg('avgOvershoot'),
+    avgSettling:  wavg('avgSettling'),
+    rmsError:     wavg('rmsError'),
+  };
+}
+
+function computeBasePIDs(analyses) {
+  const weights = analyses.map(a => a.logData.duration);
+  const roll  = averageStepResults(analyses.map(a => a.step.roll),  weights);
+  const pitch = averageStepResults(analyses.map(a => a.step.pitch), weights);
+  const yaw   = averageStepResults(analyses.map(a => a.step.yaw),   weights);
+  const noises = analyses.map(a => a.noise);
+  const nav   = calcNavPIDs(analyses.map(a => a.nav));
+
+  return {
+    roll:  calcAxisPID(roll,  noises.map(n=>n[0]), false),
+    pitch: calcAxisPID(pitch, noises.map(n=>n[1]), false),
+    yaw:   calcAxisPID(yaw,   noises.map(n=>n[2]), true),
+    nav,
+    explanations: buildExplanations(roll, pitch, yaw, nav),
+  };
+}
+
+function buildExplanations(roll, pitch, yaw, nav) {
+  const E = [];
+  const e = msg => E.push(msg);
+  if (roll) {
+    if (roll.avgOvershoot > 15) e(`Roll: High overshoot (${round1(roll.avgOvershoot)}%) → D gain increased.`);
+    if (roll.avgRiseTime  > 0.08) e(`Roll: Slow rise time (${round1(roll.avgRiseTime*1000)}ms) → P gain raised.`);
+    if (roll.rmsError > 20) e(`Roll: High tracking error (${round1(roll.rmsError)} deg/s) → I adjusted.`);
+  }
+  if (pitch && pitch.avgOvershoot > 15) e(`Pitch: Overshoot detected (${round1(pitch.avgOvershoot)}%) → D raised.`);
+  if (yaw   && yaw.avgOvershoot   > 15) e(`Yaw: Overshoot detected — review FF and I gains.`);
+  if (nav.fromData && nav.pos_xy_p > 65) e(`Nav: Horizontal drift detected → nav_mc_pos_xy_p increased.`);
+  return E;
+}
+
+function makeVariants(base) {
+  const sc = (v, f, bounds) => Math.round(clamp(v * f, bounds[0], bounds[1]));
+  const axisScale = (axis, pF, iF, dF, ffF) => ({
+    P:  sc(axis.P,  pF,  PID_BOUNDS.P),
+    I:  sc(axis.I,  iF,  PID_BOUNDS.I),
+    D:  sc(axis.D,  dF,  PID_BOUNDS.D),
+    FF: sc(axis.FF, ffF, PID_BOUNDS.FF),
+    confidence: axis.confidence,
+  });
+  const navScale = (nav, pF, iF, dF) => ({
+    pos_xy_p: sc(nav.pos_xy_p, pF,  NAV_BOUNDS.pos_xy_p),
+    vel_xy_p: sc(nav.vel_xy_p, pF,  NAV_BOUNDS.vel_xy_p),
+    vel_xy_i: sc(nav.vel_xy_i, iF,  NAV_BOUNDS.vel_xy_i),
+    vel_xy_d: sc(nav.vel_xy_d, dF,  NAV_BOUNDS.vel_xy_d),
+    pos_z_p:  sc(nav.pos_z_p,  pF,  NAV_BOUNDS.pos_z_p),
+    vel_z_p:  sc(nav.vel_z_p,  pF,  NAV_BOUNDS.vel_z_p),
+    vel_z_i:  sc(nav.vel_z_i,  iF,  NAV_BOUNDS.vel_z_i),
+    vel_z_d:  sc(nav.vel_z_d,  dF,  NAV_BOUNDS.vel_z_d),
+    fromData: nav.fromData, xyScale: nav.xyScale, zScale: nav.zScale,
+  });
+
+  return {
+    safe: {
+      name:'Safe', cls:'safe',
+      description:'–20% P/D/FF, +20% I. Prioritises stability over response.',
+      roll:  axisScale(base.roll,  0.80, 1.20, 0.80, 0.80),
+      pitch: axisScale(base.pitch, 0.80, 1.20, 0.80, 0.80),
+      yaw:   axisScale(base.yaw,   0.80, 1.20, 1.00, 0.80),
+      nav:   navScale(base.nav, 0.85, 1.20, 0.85),
+      explanations: base.explanations,
+    },
+    medium: {
+      name:'Medium', cls:'medium',
+      description:'Calculated base values. Balanced performance.',
+      roll: base.roll, pitch: base.pitch, yaw: base.yaw, nav: base.nav,
+      explanations: base.explanations,
+    },
+    aggressive: {
+      name:'Aggressive', cls:'aggressive',
+      description:'+20% P/FF, –20% I. Faster response for experienced pilots.',
+      roll:  axisScale(base.roll,  1.20, 0.80, 1.00, 1.20),
+      pitch: axisScale(base.pitch, 1.20, 0.80, 1.00, 1.20),
+      yaw:   axisScale(base.yaw,   1.20, 0.80, 1.00, 1.20),
+      nav:   navScale(base.nav, 1.15, 0.85, 1.10),
+      explanations: base.explanations,
+    },
+  };
+}
+
+function generateCLI(variant) {
+  const v = variant;
+  const lines = [
+    `# INAV Auto Tuner — ${v.name} profile`,
+    `# Generated ${new Date().toISOString().slice(0,19).replace('T',' ')}`,
+    ``,
+    `# ── Main PID (Multirotor) ──`,
+    `set mc_p_roll  = ${v.roll.P}`,
+    `set mc_i_roll  = ${v.roll.I}`,
+    `set mc_d_roll  = ${v.roll.D}`,
+    `set mc_ff_roll = ${v.roll.FF}`,
+    ``,
+    `set mc_p_pitch  = ${v.pitch.P}`,
+    `set mc_i_pitch  = ${v.pitch.I}`,
+    `set mc_d_pitch  = ${v.pitch.D}`,
+    `set mc_ff_pitch = ${v.pitch.FF}`,
+    ``,
+    `set mc_p_yaw  = ${v.yaw.P}`,
+    `set mc_i_yaw  = ${v.yaw.I}`,
+    `set mc_d_yaw  = ${v.yaw.D}`,
+    `set mc_ff_yaw = ${v.yaw.FF}`,
+    ``,
+    `# ── Navigation PIDs ──`,
+    `set nav_mc_pos_xy_p  = ${v.nav.pos_xy_p}`,
+    `set nav_mc_vel_xy_p  = ${v.nav.vel_xy_p}`,
+    `set nav_mc_vel_xy_i  = ${v.nav.vel_xy_i}`,
+    `set nav_mc_vel_xy_d  = ${v.nav.vel_xy_d}`,
+    ``,
+    `set nav_mc_pos_z_p   = ${v.nav.pos_z_p}`,
+    `set nav_mc_vel_z_p   = ${v.nav.vel_z_p}`,
+    `set nav_mc_vel_z_i   = ${v.nav.vel_z_i}`,
+    `set nav_mc_vel_z_d   = ${v.nav.vel_z_d}`,
+    ``,
+    `save`,
+  ];
+  return lines.join('\n');
+}
+
+/* ════════════════════════════════════════════════
+   CHART MANAGEMENT
+════════════════════════════════════════════════ */
+const CHART_COLORS = {
+  roll:   '#ff6b81', spRoll:  'rgba(255,107,129,.4)',
+  pitch:  '#4ecdc4', spPitch: 'rgba(78,205,196,.4)',
+  yaw:    '#ffe66d', spYaw:   'rgba(255,230,109,.4)',
+  motors: ['#ff6b81','#4ecdc4','#ffe66d','#a8ff78'],
+  navPos: ['#ff6b81','#4ecdc4','#ffe66d'],
+  navVel: ['#ff6b81','#4ecdc4','#ffe66d'],
+};
+
+const ZOOM_OPTS = () => ({
+  limits: { x: { minRange: 0.5 } },
+  zoom: {
+    wheel: { enabled: true, speed: 0.1 },
+    pinch: { enabled: true },
+    drag:  { enabled: false },
+    mode:  'x',
+  },
+  pan: { enabled: true, mode: 'x' },
+});
+
+const BASE_CHART_OPTS = (xLabel, yLabel) => ({
+  animation: false,
+  responsive: true,
+  maintainAspectRatio: true,
+  interaction: { mode: 'index', intersect: false },
+  elements: { point: { radius: 0 } },
+  scales: {
+    x: { type: 'linear',
+         title: { display: true, text: xLabel, color: '#8b949e', font: { size: 10 } },
+         ticks: { color: '#8b949e', maxTicksLimit: 8 },
+         grid:  { color: 'rgba(48,54,61,.5)' } },
+    y: { title: { display: true, text: yLabel, color: '#8b949e', font: { size: 10 } },
+         ticks: { color: '#8b949e', maxTicksLimit: 6 },
+         grid:  { color: 'rgba(48,54,61,.5)' } },
+  },
+  plugins: {
+    legend: { display: true, labels: { color: '#8b949e', font: { size: 11 }, boxWidth: 12 } },
+    zoom: ZOOM_OPTS(),
+  },
+});
+
+// Uniform decimation to at most maxPts points
+function decimate(timeUs, values, maxPts = 2500) {
+  const n = timeUs.length;
+  if (!n) return [];
+  const step = Math.max(1, Math.ceil(n / maxPts));
+  const out = [];
+  for (let i = 0; i < n; i += step) out.push({ x: timeUs[i]/1e6, y: values[i] });
+  return out;
+}
+
+function makeDataset(label, data, color, dash) {
+  return {
+    label, data, borderColor: color, backgroundColor: color,
+    borderWidth: 1.2, pointRadius: 0, fill: false,
+    tension: 0, showLine: true,
+    borderDash: dash || [],
+  };
+}
+
+function destroyChart(id) {
+  if (State.charts[id]) { State.charts[id].destroy(); delete State.charts[id]; }
+}
+function destroyAllCharts() { Object.keys(State.charts).forEach(destroyChart); }
+
+function createChart(id, config) {
+  destroyChart(id);
+  const canvas = $(id);
+  if (!canvas) return null;
+  const chart = new Chart(canvas.getContext('2d'), config);
+  State.charts[id] = chart;
+  return chart;
+}
+
+function renderAttitudeCharts(log) {
+  const axes = [
+    { id:'chart-roll',  label:'Roll',  gi:0, gc:CHART_COLORS.roll,  sc:CHART_COLORS.spRoll  },
+    { id:'chart-pitch', label:'Pitch', gi:1, gc:CHART_COLORS.pitch, sc:CHART_COLORS.spPitch },
+    { id:'chart-yaw',   label:'Yaw',   gi:2, gc:CHART_COLORS.yaw,   sc:CHART_COLORS.spYaw   },
+  ];
+  axes.forEach(({ id, label, gi, gc, sc }) => {
+    createChart(id, {
+      type: 'scatter',
+      data: { datasets: [
+        makeDataset(`Gyro ${label}`, decimate(log.time, log.gyro[gi]), gc),
+        makeDataset(`SP ${label}`,   decimate(log.time, log.sp[gi]),   sc, [4,2]),
+      ]},
+      options: BASE_CHART_OPTS('Time (s)', 'Rate (deg/s)'),
+    });
+  });
+
+  // Spectrum chart — use first 3 axes overlaid
+  const colours = [CHART_COLORS.roll, CHART_COLORS.pitch, CHART_COLORS.yaw];
+  const axNames = ['Roll','Pitch','Yaw'];
+  const segLen  = Math.min(4096, 1<<Math.floor(Math.log2(Math.max(log.gyro[0].length, 64))));
+  const datasets = log.gyro.map((g, a) => {
+    const { freqs, psd } = welchPSD(g, log.sampleRate, segLen);
+    const maxFreq = Math.min(log.sampleRate/2, 500);
+    const pts = freqs.map((f,i) => ({ x: f, y: Math.sqrt(psd[i]) }))
+                     .filter(pt => pt.x >= 5 && pt.x <= maxFreq);
+    return makeDataset(axNames[a], pts, colours[a]);
+  });
+  createChart('chart-spectrum', {
+    type: 'scatter',
+    data: { datasets },
+    options: {
+      ...BASE_CHART_OPTS('Frequency (Hz)', 'Magnitude'),
+      plugins: {
+        ...BASE_CHART_OPTS().plugins,
+        legend: { display: true, labels: { color:'#8b949e', font:{size:11}, boxWidth:12 } },
+        zoom: ZOOM_OPTS(),
+      },
+    },
+  });
+}
+
+function renderMotorChart(log) {
+  createChart('chart-motors', {
+    type: 'scatter',
+    data: { datasets: log.motor.map((m,i) =>
+      makeDataset(`Motor ${i}`, decimate(log.time, m), CHART_COLORS.motors[i])) },
+    options: BASE_CHART_OPTS('Time (s)', 'Output'),
+  });
+}
+
+function renderNavCharts(log) {
+  const axLabels = ['X','Y','Z'];
+  createChart('chart-navpos', {
+    type: 'scatter',
+    data: { datasets: log.navPos.map((p,i) =>
+      makeDataset(`Pos ${axLabels[i]}`, decimate(log.time, p), CHART_COLORS.navPos[i])) },
+    options: BASE_CHART_OPTS('Time (s)', 'Position (cm)'),
+  });
+  createChart('chart-navvel', {
+    type: 'scatter',
+    data: { datasets: log.navVel.map((v,i) =>
+      makeDataset(`Vel ${axLabels[i]}`, decimate(log.time, v), CHART_COLORS.navVel[i])) },
+    options: BASE_CHART_OPTS('Time (s)', 'Velocity (cm/s)'),
+  });
+}
+
+function updateVisualizations(logIdx) {
+  const log = State.logs[logIdx];
+  if (!log) return;
+  renderAttitudeCharts(log);
+  renderMotorChart(log);
+  renderNavCharts(log);
+  $('viz-no-data').style.display = 'none';
+}
+
+/* ════════════════════════════════════════════════
+   UI — LOG LIST & SELECTOR
+════════════════════════════════════════════════ */
+function updateLogUI() {
+  const items = $('log-items');
+  const sel   = $('log-selector');
+  if (!State.logs.length) {
+    items.innerHTML = '<p class="log-empty">No logs loaded yet</p>';
+    sel.innerHTML   = '<option value="">— load a file —</option>';
+    $('btn-analyze').disabled  = true;
+    $('btn-generate').disabled = true;
+    $('btn-export').disabled   = true;
+    $('analyze-hint').textContent = 'Upload one or more logs first';
+    return;
+  }
+  items.innerHTML = State.logs.map((log, i) => `
+    <div class="log-item">
+      <span class="log-name" title="${escHtml(log.filename)}">${escHtml(log.filename)}</span>
+      <span class="log-meta">${log.sampleCount.toLocaleString()} rows · ${round1(log.duration)}s · ${log.sampleRate}Hz</span>
+      <button class="log-remove" data-idx="${i}" title="Remove log">×</button>
+    </div>`).join('');
+  sel.innerHTML = State.logs.map((log, i) =>
+    `<option value="${i}">${escHtml(log.filename)}</option>`).join('');
+  $('btn-analyze').disabled  = false;
+  $('analyze-hint').textContent = `${State.logs.length} log(s) loaded`;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ════════════════════════════════════════════════
+   UI — ANALYSIS DISPLAY
+════════════════════════════════════════════════ */
+function qualityBadge(val, goodBelow, warnBelow) {
+  if (val <= goodBelow) return 'badge-good';
+  if (val <= warnBelow) return 'badge-warn';
+  return 'badge-bad';
+}
+
+function renderAnalysis(analyses) {
+  const out = $('analysis-output');
+  if (!analyses.length) { out.innerHTML = '<div class="no-data">No analysis results.</div>'; return; }
+
+  // Aggregate warnings
+  const allWarnings = analyses.flatMap(a => a.warnings);
+  const uniqueW = [...new Map(allWarnings.map(w => [w.msg, w])).values()];
+
+  let html = '';
+
+  // Warnings
+  if (uniqueW.length) {
+    html += `<div class="analysis-section"><h2>Warnings / Notices</h2>
+      <ul class="warnings-list">${uniqueW.map(w =>
+        `<li class="w-${w.lvl}">${escHtml(w.msg)}</li>`).join('')}</ul></div>`;
+  }
+
+  // Per-log summary and merged noise/step
+  const avgNoise = (axIdx) => {
+    const peaks = analyses.flatMap(a => a.noise[axIdx].peaks).slice(0,3);
+    return {
+      dominant: peaks.length ? mean(analyses.map(a => a.noise[axIdx].dominantFreq)) : 0,
+      severity: analyses.every(a => a.noise[axIdx].severity==='low') ? 'low'
+              : analyses.some(a  => a.noise[axIdx].severity==='high') ? 'high' : 'medium',
+      peaks,
+    };
+  };
+
+  const axisNames = ['Roll','Pitch','Yaw'];
+  // Noise table
+  html += `<div class="analysis-section"><h2>Noise Analysis (Gyro PSD)</h2>
+    <div class="scroll-x"><table class="axis-table">
+      <thead><tr><th>Axis</th><th>Dominant Freq</th><th>Severity</th><th>Top Peaks (Hz)</th></tr></thead>
+      <tbody>${axisNames.map((n,a) => {
+        const nm = avgNoise(a);
+        const sev = nm.severity==='low' ? 'badge-good' : nm.severity==='high' ? 'badge-bad' : 'badge-warn';
+        const peaksStr = nm.peaks.slice(0,3).map(p => `${round1(p.freq)}`).join(', ') || '—';
+        return `<tr>
+          <td><strong>${n}</strong></td>
+          <td>${nm.dominant > 0 ? round1(nm.dominant)+' Hz' : '—'}</td>
+          <td><span class="badge ${sev}">${nm.severity}</span></td>
+          <td>${peaksStr}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div></div>`;
+
+  // Step response table
+  html += `<div class="analysis-section"><h2>Step Response Analysis
+    <span style="font-size:11px;font-weight:400;color:var(--text2);margin-left:8px">threshold: ${Settings.stepThresh} deg/s · min duration: ${Settings.stepMinDurMs} ms</span>
+  </h2>
+    <div class="scroll-x"><table class="axis-table">
+      <thead><tr><th>Axis</th><th>Steps</th><th>Rise Time</th><th>Overshoot</th><th>RMS Error</th><th>Quality</th></tr></thead>
+      <tbody>${axisNames.map((n,a) => {
+        const key = n.toLowerCase();
+        const valid = analyses.filter(an => an.step[key]);
+        if (!valid.length) return `<tr><td><strong>${n}</strong></td><td colspan="5" style="color:var(--text2)">No step responses detected</td></tr>`;
+        const rs = averageStepResults(valid.map(an => an.step[key]), null);
+        const rtMs = round1(rs.avgRiseTime*1000);
+        const ov   = round1(rs.avgOvershoot);
+        const err  = round1(rs.rmsError);
+        const q = rs.avgOvershoot < 8 && rs.avgRiseTime < 0.08 ? 'badge-good'
+                 : rs.avgOvershoot > 20 || rs.avgRiseTime > 0.15 ? 'badge-bad' : 'badge-warn';
+        return `<tr>
+          <td><strong>${n}</strong></td>
+          <td>${rs.count}</td>
+          <td class="${qualityBadge(rs.avgRiseTime,0.06,0.12)}">${rtMs} ms</td>
+          <td class="${qualityBadge(ov,8,20)}">${ov}%</td>
+          <td>${err} deg/s</td>
+          <td><span class="badge ${q}">${q==='badge-good'?'Good':q==='badge-bad'?'Poor':'Fair'}</span></td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div></div>`;
+
+  // Nav table
+  const navList = analyses.map(a => a.nav).filter(n => n.hasNavData);
+  if (navList.length) {
+    const xyPos = round1(mean(navList.map(n=>n.xyPosRMS))/100);
+    const zPos  = round1(mean(navList.map(n=>n.posRMS[2]))/100);
+    const xyVel = round1(mean(navList.map(n=>n.xyVelRMS))/100);
+    const phList  = navList.filter(n => n.posHoldError);
+    const wndList = navList.filter(n => n.windEst);
+    html += `<div class="analysis-section"><h2>Navigation Analysis</h2>
+      <div class="metric-grid">
+        <div class="metric-card ${xyPos<0.5?'good':xyPos<1.5?'warn':'bad'}">
+          <div class="label">Horizontal Pos RMS</div>
+          <div class="value">${xyPos} m</div>
+          <div class="sub">Avg across ${navList.length} log(s)</div>
+        </div>
+        <div class="metric-card ${zPos<0.3?'good':zPos<1.0?'warn':'bad'}">
+          <div class="label">Vertical Pos RMS</div>
+          <div class="value">${zPos} m</div>
+        </div>
+        <div class="metric-card ${xyVel<0.3?'good':xyVel<1.0?'warn':'bad'}">
+          <div class="label">Horizontal Vel RMS</div>
+          <div class="value">${xyVel} m/s</div>
+        </div>
+        ${phList.length ? (() => {
+          const phRms = round1(mean(phList.map(n=>n.posHoldError.rms))/100);
+          const phMax = round1(mean(phList.map(n=>n.posHoldError.max))/100);
+          return `<div class="metric-card ${phRms<0.5?'good':phRms<1.5?'warn':'bad'}">
+            <div class="label">Poshold Error RMS</div>
+            <div class="value">${phRms} m</div>
+            <div class="sub">Actual vs navTgtPos · max ${phMax}m</div>
+          </div>`;
+        })() : navList.some(n => !n.hasNavTgtCols) ? `<div class="metric-card" style="border-color:var(--text2)">
+            <div class="label">Poshold Error</div>
+            <div class="value" style="font-size:12px;color:var(--text2)">N/A</div>
+            <div class="sub">navTgtPos columns not in CSV &mdash; enable nav_mc_pos_xy logging</div>
+          </div>` : ''}
+        ${wndList.length ? (() => {
+          const wm = round1(mean(wndList.map(n=>n.windEst.meanMagMs)));
+          const wx = round1(mean(wndList.map(n=>n.windEst.maxMagMs)));
+          const wd = Math.round(mean(wndList.map(n=>n.windEst.dirDeg)));
+          return `<div class="metric-card">
+            <div class="label">Wind Estimate</div>
+            <div class="value">${wm} m/s</div>
+            <div class="sub">Mean · max ${wx} m/s · dir ${wd}°</div>
+          </div>`;
+        })() : navList.some(n => !n.hasWindCols) ? `<div class="metric-card" style="border-color:var(--text2)">
+            <div class="label">Wind Estimate</div>
+            <div class="value" style="font-size:12px;color:var(--text2)">N/A</div>
+            <div class="sub">wind[0-2] columns not in CSV &mdash; enable wind estimator logging</div>
+          </div>` : ''}
+      </div></div>`;
+  } else {
+    html += `<div class="analysis-section"><h2>Navigation Analysis</h2>
+      <p style="color:var(--text2);font-size:13px">No navigation data found in loaded logs.</p></div>`;
+  }
+
+  out.innerHTML = html;
+}
+
+/* ════════════════════════════════════════════════
+   UI — PID DISPLAY
+════════════════════════════════════════════════ */
+function renderPIDs(variants) {
+  const out = $('pid-output');
+  const cards = Object.values(variants);
+  let html = '<div class="pid-variants">' + cards.map(v => {
+    const conf = a => `<span class="confidence conf-${a.confidence}">${a.confidence}</span>`;
+    const row = (label, ax) =>
+      `<div class="pid-row">
+        <span class="axis-label">${label}</span>
+        <span class="pid-val">${ax.P}</span>
+        <span class="pid-val">${ax.I}</span>
+        <span class="pid-val">${ax.D}</span>
+        <span class="pid-val">${ax.FF}</span>
+      </div>`;
+    const cliId = `cli-${v.cls}`;
+    return `
+    <div class="pid-card ${v.cls}">
+      <div class="pid-card-header">
+        <div>
+          <h3>${v.name}</h3>
+          <p>${v.description}</p>
+        </div>
+      </div>
+      <div class="pid-card-body">
+        <div class="pid-section">
+          <div class="pid-section-title">Main PID (Multirotor)</div>
+          <div class="pid-header-row">
+            <span>Axis</span><span>P</span><span>I</span><span>D</span><span>FF</span>
+          </div>
+          ${row('Roll',  v.roll)}
+          ${row('Pitch', v.pitch)}
+          ${row('Yaw',   v.yaw)}
+        </div>
+        <div class="pid-section">
+          <div class="pid-section-title">Navigation PIDs</div>
+          <div style="display:grid;gap:8px">
+            <div class="nav-pid-group">
+              <div class="nav-pid-sub">Horizontal (XY) · Position Loop</div>
+              <div class="nav-param-row">
+                <span class="np-key">nav_mc_pos_xy_p</span>
+                <span class="pid-val">${v.nav.pos_xy_p}</span>
+              </div>
+            </div>
+            <div class="nav-pid-group">
+              <div class="nav-pid-sub">Horizontal (XY) · Velocity Loop</div>
+              <div class="nav-param-row">
+                <span class="np-key">vel_xy_p</span><span class="pid-val">${v.nav.vel_xy_p}</span>
+                <span class="np-key" style="margin-left:6px">vel_xy_i</span><span class="pid-val">${v.nav.vel_xy_i}</span>
+                <span class="np-key" style="margin-left:6px">vel_xy_d</span><span class="pid-val">${v.nav.vel_xy_d}</span>
+              </div>
+            </div>
+            <div class="nav-pid-group">
+              <div class="nav-pid-sub">Vertical (Z) · Position Loop</div>
+              <div class="nav-param-row">
+                <span class="np-key">nav_mc_pos_z_p</span>
+                <span class="pid-val">${v.nav.pos_z_p}</span>
+              </div>
+            </div>
+            <div class="nav-pid-group">
+              <div class="nav-pid-sub">Vertical (Z) · Velocity Loop</div>
+              <div class="nav-param-row">
+                <span class="np-key">vel_z_p</span><span class="pid-val">${v.nav.vel_z_p}</span>
+                <span class="np-key" style="margin-left:6px">vel_z_i</span><span class="pid-val">${v.nav.vel_z_i}</span>
+                <span class="np-key" style="margin-left:6px">vel_z_d</span><span class="pid-val">${v.nav.vel_z_d}</span>
+              </div>
+            </div>
+          </div>
+          ${!v.nav.fromData ? '<p style="font-size:11px;color:var(--text2);margin-top:6px">ℹ️ No nav data — using INAV defaults.</p>' : ''}
+          ${v.nav.fromData && v.nav.xyScale != null && v.nav.zScale != null && Math.abs(v.nav.xyScale - v.nav.zScale) > 0.07 ?
+            `<p class="nav-scale-note">ℹ️ XY scale factor (${v.nav.xyScale.toFixed(2)}×) differs from vertical Z (${v.nav.zScale.toFixed(2)}×) — horizontal drift is proportionally larger, which often indicates wind or GPS offset affecting XY hold more than altitude. Consider increasing <code>vel_xy_p</code> independently of Z gains.</p>` : ''}
+        </div>
+        ${v.explanations.length ? `<div class="pid-section">
+          <div class="pid-section-title">Notes</div>
+          <ul class="pid-explain">${v.explanations.map(e=>`<li>${escHtml(e)}</li>`).join('')}</ul>
+        </div>` : ''}
+        <pre class="cli-block" id="${cliId}">${escHtml(generateCLI(v))}</pre>
+      </div>
+      <div class="pid-card-footer">
+        <span style="font-size:11px;color:var(--text2)">Confidence: ${conf(v.roll)}</span>
+        <button class="btn-copy" data-target="${cliId}">📋 Copy CLI</button>
+      </div>
+    </div>`;
+  }).join('') + '</div>';
+
+  out.innerHTML = html;
+
+  // Bind copy buttons
+  out.querySelectorAll('.btn-copy').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = $(btn.dataset.target);
+      if (!target) return;
+      navigator.clipboard.writeText(target.textContent).then(() => {
+        btn.textContent = '✓ Copied!';
+        setTimeout(() => btn.textContent = '📋 Copy CLI', 2000);
+      }).catch(() => {
+        // Fallback
+        const sel = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(target);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        document.execCommand('copy');
+        btn.textContent = '✓ Copied!';
+        setTimeout(() => btn.textContent = '📋 Copy CLI', 2000);
+      });
+    });
+  });
+}
+
+/* ════════════════════════════════════════════════
+   STATUS BAR
+════════════════════════════════════════════════ */
+let _statusTimer = null;
+function showStatus(msg, type = 'info', duration = 4000) {
+  const el = $('status-msg');
+  el.textContent = msg;
+  el.className   = type;
+  el.style.display = 'block';
+  if (_statusTimer) clearTimeout(_statusTimer);
+  if (duration > 0) _statusTimer = setTimeout(() => el.style.display='none', duration);
+}
+
+/* ════════════════════════════════════════════════
+   EXPORT / LOAD SESSION JSON
+════════════════════════════════════════════════ */
+function exportJSON() {
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    settings: { ...Settings },
+    logs: State.logs.map(l => ({
+      filename: l.filename, sampleCount: l.sampleCount,
+      duration: l.duration, sampleRate: l.sampleRate,
+      gyroScaleApplied: l.gyroScaleApplied || null,
+    })),
+    analyses: State.analyses.map(a => ({
+      filename: a.logData.filename,
+      noise: a.noise.map(n => ({ axis:n.name, severity:n.severity,
+        dominantFreq:round1(n.dominantFreq), peaks: n.peaks.slice(0,3) })),
+      stepResponse: {
+        roll:  a.step.roll  ? { count:a.step.roll.count,  riseTimeMs:round1(a.step.roll.avgRiseTime*1000),  overshoot:round1(a.step.roll.avgOvershoot)  } : null,
+        pitch: a.step.pitch ? { count:a.step.pitch.count, riseTimeMs:round1(a.step.pitch.avgRiseTime*1000), overshoot:round1(a.step.pitch.avgOvershoot) } : null,
+        yaw:   a.step.yaw   ? { count:a.step.yaw.count,   riseTimeMs:round1(a.step.yaw.avgRiseTime*1000),   overshoot:round1(a.step.yaw.avgOvershoot)   } : null,
+      },
+      nav: a.nav.hasNavData ? {
+        xyPosRMS_m: round2(a.nav.xyPosRMS/100), zPosRMS_m: round2(a.nav.posRMS[2]/100),
+        xyVelRMS_ms: round2(a.nav.xyVelRMS/100),
+        posHoldError: a.nav.posHoldError ? {
+          rms_m: round2(a.nav.posHoldError.rms/100),
+          max_m: round2(a.nav.posHoldError.max/100),
+        } : null,
+        windEst: a.nav.windEst || null,
+      } : null,
+      warnings: a.warnings,
+    })),
+    pidSuggestions: State.pids,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `inav-autotune-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function loadSession(jsonText) {
+  try {
+    const data = JSON.parse(jsonText);
+    if (!data.analyses || !data.pidSuggestions)
+      throw new Error('Not a valid INAV Auto Tuner session file (missing analyses or pidSuggestions).');
+    State.analyses = data.analyses;
+    State.pids     = data.pidSuggestions;
+    renderAnalysis(State.analyses);
+    renderPIDs(State.pids);
+    $('btn-generate').disabled = false;
+    $('btn-export').disabled   = false;
+    $('tune-hint').textContent = 'Session loaded from file';
+    showStatus('Session loaded.', 'success');
+    document.querySelector('[data-tab="tune"]').click();
+  } catch (err) {
+    showStatus('Could not load session: ' + err.message, 'error', 7000);
+  }
+}
+
+/* ════════════════════════════════════════════════
+   THEME
+════════════════════════════════════════════════ */
+function initTheme() {
+  const saved = localStorage.getItem('inav-theme') || 'dark';
+  if (saved === 'light') document.body.classList.add('light-mode');
+  updateThemeBtn();
+}
+function toggleTheme() {
+  document.body.classList.toggle('light-mode');
+  const isDark = !document.body.classList.contains('light-mode');
+  localStorage.setItem('inav-theme', isDark ? 'dark' : 'light');
+  updateThemeBtn();
+}
+function updateThemeBtn() {
+  const btn = $('btn-theme');
+  if (!btn) return;
+  const isLight = document.body.classList.contains('light-mode');
+  btn.textContent = isLight ? '🌙' : '☀️';
+  btn.title = isLight ? 'Switch to dark mode' : 'Switch to light mode';
+}
+
+/* ════════════════════════════════════════════════
+   EVENT HANDLERS
+════════════════════════════════════════════════ */
+async function loadFiles(files) {
+  let loaded = 0, errors = 0;
+  for (const file of files) {
+    try {
+      const text = await file.text();
+      const log  = parseCSV(text, file.name);
+      State.logs.push(log);
+      loaded++;
+    } catch (err) {
+      errors++;
+      showStatus(`Error loading "${file.name}": ${err.message}`, 'error', 6000);
+    }
+  }
+  if (loaded > 0) {
+    updateLogUI();
+    // Auto-show first log if first batch
+    if (State.logs.length === loaded) {
+      $('log-selector').value = '0';
+      updateVisualizations(0);
+    }
+    showStatus(`Loaded ${loaded} log(s)${errors ? `, ${errors} failed` : ''}.`, 'success');
+    // Reset analysis state
+    State.analyses = [];
+    State.pids     = null;
+    $('btn-generate').disabled = true;
+    $('btn-export').disabled   = true;
+    $('analysis-output').innerHTML = '<div class="no-data">Run analysis to see results.</div>';
+    $('pid-output').innerHTML      = '<div class="no-data">Generate PID suggestions to see results.</div>';
+  }
+}
+
+function initEvents() {
+  // ── Theme toggle ──
+  $('btn-theme').addEventListener('click', toggleTheme);
+
+  // ── Decode modal ──
+  $('btn-decode-guide').addEventListener('click', () => $('decode-modal').classList.add('open'));
+  $('modal-close-btn').addEventListener('click', () => $('decode-modal').classList.remove('open'));
+  $('decode-modal').addEventListener('click', e => {
+    if (e.target === $('decode-modal')) $('decode-modal').classList.remove('open');
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') $('decode-modal').classList.remove('open');
+  });
+  $('btn-copy-cmd').addEventListener('click', () => {
+    navigator.clipboard.writeText('blackbox_decode yourlog.bbl').then(() => {
+      $('btn-copy-cmd').textContent = '✓ Copied!';
+      setTimeout(() => { $('btn-copy-cmd').textContent = '📋 Copy'; }, 2000);
+    }).catch(() => {});
+  });
+
+  // ── Advanced upload settings ──
+  $('adv-settings-toggle').addEventListener('click', () => {
+    const c = $('adv-content');
+    c.classList.toggle('open');
+    $('adv-settings-toggle').textContent =
+      c.classList.contains('open') ? '▼ Advanced Options' : '▶ Advanced Options';
+  });
+  $('gyro-scale-override').addEventListener('change', e => {
+    Settings.gyroScaleAuto  = !e.target.checked;
+    $('gyro-scale-val').disabled = !e.target.checked;
+  });
+  $('gyro-scale-val').addEventListener('change', e => {
+    const v = parseFloat(e.target.value);
+    Settings.gyroScaleFactor = v > 0 ? v : 16.384;
+  });
+
+  // ── File input ──
+  $('file-input').addEventListener('change', e => {
+    if (e.target.files.length) loadFiles(Array.from(e.target.files));
+    e.target.value = '';
+  });
+
+  // ── Drag & drop ──
+  const dz = $('drop-zone');
+  dz.addEventListener('click', e => {
+    if (!e.target.closest('button') && !e.target.closest('a')) $('file-input').click();
+  });
+  dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('drag-over'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault(); dz.classList.remove('drag-over');
+    const files = Array.from(e.dataTransfer.files).filter(f => /\.(csv|bbl|bfl)$/i.test(f.name));
+    if (files.length) loadFiles(files);
+    else showStatus('Please drop .csv, .bbl, or .bfl files.', 'warn');
+  });
+
+  // ── Remove log ──
+  $('log-items').addEventListener('click', e => {
+    const btn = e.target.closest('.log-remove');
+    if (!btn) return;
+    const idx = parseInt(btn.dataset.idx);
+    State.logs.splice(idx, 1);
+    State.analyses = []; State.pids = null;
+    updateLogUI();
+    if (State.logs.length) {
+      $('log-selector').value = '0';
+      updateVisualizations(0);
+    } else {
+      destroyAllCharts();
+      $('viz-no-data').style.display = 'block';
+    }
+    $('btn-generate').disabled = true;
+    $('btn-export').disabled   = true;
+  });
+
+  // ── Log selector ──
+  $('log-selector').addEventListener('change', e => {
+    const idx = parseInt(e.target.value);
+    if (!isNaN(idx)) updateVisualizations(idx);
+  });
+
+  // ── Main tabs ──
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+      $('tab-' + btn.dataset.tab).classList.add('active');
+    });
+  });
+
+  // ── Chart sub-tabs ──
+  document.querySelectorAll('.csub-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.csub-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.chart-tab-pane').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      $('ctab-' + btn.dataset.ctab).classList.add('active');
+      setTimeout(() => Object.values(State.charts).forEach(c => c.resize()), 50);
+    });
+  });
+
+  // ── Reset zoom ──
+  $('btn-reset-zoom').addEventListener('click', () => {
+    Object.values(State.charts).forEach(c => { if (c.resetZoom) c.resetZoom(); });
+  });
+
+  // ── Analysis settings panel toggle ──
+  $('settings-toggle-row').addEventListener('click', () => {
+    $('analysis-settings').classList.toggle('collapsed');
+  });
+
+  // ── Step threshold slider ──
+  $('step-thresh').addEventListener('input', e => {
+    Settings.stepThresh = parseInt(e.target.value);
+    $('step-thresh-val').textContent = Settings.stepThresh + ' deg/s';
+  });
+
+  // ── Step min duration slider ──
+  $('step-dur').addEventListener('input', e => {
+    Settings.stepMinDurMs = parseInt(e.target.value);
+    $('step-dur-val').textContent = Settings.stepMinDurMs + ' ms';
+  });
+
+  // ── Average logs toggle ──
+  $('avg-logs').addEventListener('change', e => {
+    Settings.avgByDuration = e.target.checked;
+  });
+
+  // ── Auto-detect step threshold ──
+  $('btn-auto-thresh').addEventListener('click', () => {
+    if (!State.logs.length) { showStatus('Load logs first to auto-detect threshold.', 'warn'); return; }
+    const jumps = [];
+    for (const log of State.logs) {
+      for (const axis of log.sp) {
+        for (let i = 1; i < axis.length; i++) {
+          const d = Math.abs(axis[i] - axis[i - 1]);
+          if (d > 20) jumps.push(d);
+        }
+      }
+    }
+    if (!jumps.length) { showStatus('No significant setpoint movement detected in logs.', 'warn', 5000); return; }
+    jumps.sort((a, b) => a - b);
+    // Use 25th-percentile jump × 0.7 so typical stick inputs comfortably exceed the threshold
+    const p25 = jumps[Math.floor(jumps.length * 0.25)];
+    const suggested = clamp(Math.round(p25 * 0.7 / 5) * 5, 50, 150);
+    Settings.stepThresh = suggested;
+    $('step-thresh').value = suggested;
+    $('step-thresh-val').textContent = suggested + ' deg/s';
+    showStatus(`Threshold auto-set to ${suggested} deg/s (${jumps.length} stick movements across ${State.logs.length} log(s)).`, 'success', 6000);
+  });
+
+  // ── Analyse (async with progress bar) ──
+  $('btn-analyze').addEventListener('click', async () => {
+    if (!State.logs.length) return;
+    const btn = $('btn-analyze');
+    const progressWrap = $('analysis-progress');
+    const progressBar  = $('progress-bar-inner');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Analysing…';
+    progressWrap.classList.add('visible');
+    progressBar.style.width = '0%';
+    try {
+      State.analyses = [];
+      const total = State.logs.length;
+      for (let i = 0; i < total; i++) {
+        progressBar.style.width = `${Math.round((i / total) * 88)}%`;
+        await new Promise(r => setTimeout(r, 0)); // yield to browser for repaint
+        State.analyses.push(analyseLog(State.logs[i]));
+      }
+      progressBar.style.width = '100%';
+      await new Promise(r => setTimeout(r, 200));
+      renderAnalysis(State.analyses);
+      $('btn-generate').disabled = false;
+      $('tune-hint').textContent = 'Analysis complete — ready to generate PIDs';
+      showStatus('Analysis complete.', 'success');
+      document.querySelector('[data-tab="analyze"]').click();
+    } catch (err) {
+      showStatus('Analysis error: ' + err.message, 'error', 8000);
+      console.error(err);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '🔬 Run Analysis';
+      progressWrap.classList.remove('visible');
+      progressBar.style.width = '0%';
+    }
+  });
+
+  // ── Generate PIDs ──
+  $('btn-generate').addEventListener('click', () => {
+    if (!State.analyses.length) return;
+    try {
+      const base = computeBasePIDs(State.analyses);
+      State.pids = makeVariants(base);
+      renderPIDs(State.pids);
+      $('btn-export').disabled = false;
+      $('tune-hint').textContent = 'PID suggestions generated';
+      showStatus('PID suggestions generated.', 'success');
+      document.querySelector('[data-tab="tune"]').click();
+    } catch (err) {
+      showStatus('PID generation error: ' + err.message, 'error', 8000);
+      console.error(err);
+    }
+  });
+
+  // ── Export JSON ──
+  $('btn-export').addEventListener('click', exportJSON);
+
+  // ── Load Session JSON ──
+  $('btn-load-session').addEventListener('click', () => $('session-file-input').click());
+  $('session-file-input').addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    loadSession(await file.text());
+    e.target.value = '';
+  });
+}
+
+/* ════════════════════════════════════════════════
+   BOOT
+════════════════════════════════════════════════ */
+document.addEventListener('DOMContentLoaded', () => {
+  Chart.register(ChartZoom);
+  initTheme();
+  initEvents();
+  showStatus('Ready — upload a decoded INAV blackbox CSV to begin.', 'info', 5000);
+});
+</script>
+</body>
+</html>

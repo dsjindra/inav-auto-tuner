@@ -1,0 +1,10 @@
+# Local logs and exports
+*.csv
+*.TXT
+*.txt
+*.json
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
